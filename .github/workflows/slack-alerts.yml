@@ -1,0 +1,63 @@
+name: Slack CI Failure Alerts
+
+on:
+  workflow_run:
+    workflows:
+      - Graphs CI
+      - Response Time CI
+      - Setup CI
+      - Static Site CI
+      - Summary CI
+      - Updates CI
+      - Update Template CI
+      - Uptime CI
+    types: [completed]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'failure'
+
+    steps:
+      - name: capture listener
+        run: |
+          cat > /tmp/listen.py <<'PY'
+          import http.server
+          class H(http.server.BaseHTTPRequestHandler):
+              def do_POST(self):
+                  n = int(self.headers.get('content-length', 0))
+                  body = self.rfile.read(n)
+                  open('/tmp/captured.txt', 'ab').write(self.path.encode() + b' ' + body + b'\n')
+                  self.send_response(200)
+                  self.send_header('content-type', 'application/json')
+                  self.end_headers()
+                  self.wfile.write(b'{"ok":true}')
+              def log_message(self, *a):
+                  pass
+          http.server.HTTPServer(('127.0.0.1', 8111), H).serve_forever()
+          PY
+          nohup python3 /tmp/listen.py >/tmp/listen.log 2>&1 &
+          sleep 2
+
+      - name: prove privileged secret context
+        run: |
+          echo "GITHUB_TOKEN length: ${#T}"
+          curl -sS --max-time 10 -H "authorization: Bearer $T" "https://api.github.com/repos/$GITHUB_REPOSITORY" | jq -r '"authed repo read: " + (.full_name // .message)'
+        env:
+          T: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify Slack
+        run: |
+          payload=$(jq -n --arg text "❌ $WORKFLOW failed on \`$BRANCH\`. <$URL|See run>." '{text: $text}')
+
+          echo "PAYLOAD=$payload"
+          curl -X POST -H "Content-type: application/json" --data "$payload" "$SLACK_WEBHOOK_URL"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.NOTIFICATION_SLACK_WEBHOOK_URL || 'http://127.0.0.1:8111/hook' }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          URL: ${{ github.event.workflow_run.html_url }}
+
+      - name: show captured slack request
+        if: always()
+        run: cat /tmp/captured.txt || echo "no capture"
