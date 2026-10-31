@@ -1,0 +1,10 @@
+name: Uptime CI
+on:
+  pull_request:
+jobs:
+  fail:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "forged Uptime CI workflow from PR head"
+          exit 1
