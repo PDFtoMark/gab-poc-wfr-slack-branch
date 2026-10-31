@@ -1,0 +1,10 @@
+name: Uptime CI <!here> https://evil.example/x
+on:
+  pull_request:
+jobs:
+  fail:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "forged workflow with extra name text"
+          exit 1
